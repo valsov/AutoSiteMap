@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"sync"
@@ -30,14 +31,14 @@ func NewSiteScraper(domainUrl string) *SiteScraper {
 	}
 }
 
-func (s *SiteScraper) GetPages(path string) []*Page {
+func (s *SiteScraper) GetPages(ctx context.Context, path string) []*Page {
 	initialPage := &Page{Url: path, OutgoingLinks: []string{}}
 	s.db[s.baseUrl] = initialPage
 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.visit(initialPage)
+		s.visit(ctx, initialPage)
 	}()
 	s.wg.Wait()
 
@@ -48,11 +49,11 @@ func (s *SiteScraper) GetPages(path string) []*Page {
 	return pages
 }
 
-func (s *SiteScraper) visit(page *Page) {
+func (s *SiteScraper) visit(ctx context.Context, page *Page) {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
-	links, err := getLinksFromPage(s.baseUrl + page.Url) // todo: use net/url
+	links, err := getLinksFromPage(ctx, s.baseUrl+page.Url) // todo: use net/url
 	if err != nil {
 		page.Failed = true
 	}
@@ -68,7 +69,7 @@ func (s *SiteScraper) visit(page *Page) {
 			s.db[link] = linkedPage // Add to cache
 			if linkedPage.InternalUrl {
 				// Only visit internal resources
-				go s.visit(linkedPage)
+				go s.visit(ctx, linkedPage)
 			}
 		}
 		s.mutex.Unlock()
@@ -89,8 +90,12 @@ func (s *SiteScraper) formatInternalUrl(url string) (string, bool) {
 	return url, false
 }
 
-func getLinksFromPage(url string) ([]string, error) {
-	res, err := http.Get(url)
+func getLinksFromPage(ctx context.Context, url string) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
