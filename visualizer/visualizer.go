@@ -20,12 +20,17 @@ type Edge struct {
 	Destination int `json:"to"`
 }
 
-type Data struct {
+type JsonData struct {
 	Nodes string
 	Edges string
 }
 
 func GenerateVisualizer(pages []*scraper.Page, writePath string) {
+	jsonData := toJsonData(pages)
+	writeVisualizer(jsonData, writePath)
+}
+
+func toJsonData(pages []*scraper.Page) *JsonData {
 	data := struct {
 		Nodes []Node
 		Edges []Edge
@@ -50,12 +55,13 @@ func GenerateVisualizer(pages []*scraper.Page, writePath string) {
 	if err != nil {
 		panic(err)
 	}
-	writableData := Data{
+	return &JsonData{
 		Nodes: string(nodesBytes),
 		Edges: string(edgesBytes),
 	}
+}
 
-	// Use template engine
+func writeVisualizer(data *JsonData, writePath string) {
 	var tmplFile = "view.tmpl"
 	tmpl, err := template.New(tmplFile).ParseFiles(tmplFile)
 	if err != nil {
@@ -66,7 +72,7 @@ func GenerateVisualizer(pages []*scraper.Page, writePath string) {
 	if err != nil {
 		panic(err)
 	}
-	err = tmpl.Execute(fileHandle, writableData)
+	err = tmpl.Execute(fileHandle, data)
 	if err != nil {
 		panic(err)
 	}
