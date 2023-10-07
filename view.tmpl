@@ -1,0 +1,36 @@
+<html>
+  <body>
+      <div id="network-container"></div>
+  </body>
+  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <script type="text/javascript">
+    var nodesData = {{ .Nodes }}
+    nodesData.forEach(n => {
+      if (n.error) {
+        n.color = "#ef3232"
+      }
+      else if (n.internal) {
+        n.color = "#32b1ef"
+      }
+      else {
+        n.color = "#efca32"
+      }
+    });
+    var nodes = new vis.DataSet(nodesData);
+    
+    var edgesData = {{ .Edges }}
+    edgesData.forEach(e => {
+      e.arrows= "to"
+    });
+    var edges = new vis.DataSet(edgesData);
+  
+    // create a network
+    var container = document.getElementById("network-container");
+    var data = {
+      nodes: nodes,
+      edges: edges
+    };
+    var options = {};
+    var network = new vis.Network(container, data, options);
+  </script>
+</html>

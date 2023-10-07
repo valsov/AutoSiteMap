@@ -3,28 +3,33 @@ package scraper
 import (
 	"context"
 	"net/http"
-	"strings"
+	"net/url"
 	"sync"
 
 	"golang.org/x/net/html"
 )
 
 type Page struct {
-	Url                 string
-	OutgoingLinks       []string
-	InternalUrl, Failed bool
+	Id                    int
+	Url                   string
+	OutgoingLinks         []int
+	IsInternalUrl, Failed bool
 }
 
 type SiteScraper struct {
-	baseUrl string
+	baseUrl *url.URL
 	db      map[string]*Page
 	mutex   sync.Mutex
 	wg      sync.WaitGroup
 }
 
 func NewSiteScraper(domainUrl string) *SiteScraper {
+	parsedUrl, err := url.Parse(domainUrl)
+	if err != nil {
+		panic(err)
+	}
 	return &SiteScraper{
-		baseUrl: domainUrl,
+		baseUrl: parsedUrl,
 		db:      map[string]*Page{},
 		mutex:   sync.Mutex{},
 		wg:      sync.WaitGroup{},
@@ -32,8 +37,8 @@ func NewSiteScraper(domainUrl string) *SiteScraper {
 }
 
 func (s *SiteScraper) GetPages(ctx context.Context, path string) []*Page {
-	initialPage := &Page{Url: path, OutgoingLinks: []string{}}
-	s.db[s.baseUrl] = initialPage
+	initialPage := &Page{Id: 1, Url: path, OutgoingLinks: []int{}, IsInternalUrl: true}
+	s.db[path] = initialPage
 
 	s.wg.Add(1)
 	go func() {
@@ -53,21 +58,23 @@ func (s *SiteScraper) visit(ctx context.Context, page *Page) {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
-	links, err := getLinksFromPage(ctx, s.baseUrl+page.Url) // todo: use net/url
+	requestUrl := s.baseUrl.JoinPath(page.Url)
+	links, err := getLinksFromPage(ctx, requestUrl.String())
 	if err != nil {
 		page.Failed = true
+		return
 	}
 
 	for _, link := range links {
 		link, internal := s.formatInternalUrl(link) // Format link
 		s.mutex.Lock()
 		if linkedPage, found := s.db[link]; found {
-			page.OutgoingLinks = append(page.OutgoingLinks, linkedPage.Url)
+			page.OutgoingLinks = append(page.OutgoingLinks, linkedPage.Id)
 		} else {
-			linkedPage = &Page{Url: link, OutgoingLinks: []string{}, InternalUrl: internal}
-			page.OutgoingLinks = append(page.OutgoingLinks, linkedPage.Url)
+			linkedPage = &Page{Id: len(s.db) + 1, Url: link, OutgoingLinks: []int{}, IsInternalUrl: internal}
+			page.OutgoingLinks = append(page.OutgoingLinks, linkedPage.Id)
 			s.db[link] = linkedPage // Add to cache
-			if linkedPage.InternalUrl {
+			if linkedPage.IsInternalUrl {
 				// Only visit internal resources
 				go s.visit(ctx, linkedPage)
 			}
@@ -76,18 +83,16 @@ func (s *SiteScraper) visit(ctx context.Context, page *Page) {
 	}
 }
 
-func (s *SiteScraper) formatInternalUrl(url string) (string, bool) {
-	// todo: use net/url
-	if len(url) == 0 {
-		return url, false
+func (s *SiteScraper) formatInternalUrl(inputUrl string) (string, bool) {
+	parsed, err := url.Parse(inputUrl)
+	if err != nil {
+		return inputUrl, false
 	}
-	if url[0] == '/' {
-		return url, true
+
+	if parsed.Host == s.baseUrl.Host {
+		return parsed.Path, true // Ommit query string and host
 	}
-	if strings.HasPrefix(url, s.baseUrl) {
-		return url[len(s.baseUrl):], true
-	}
-	return url, false
+	return inputUrl, false
 }
 
 func getLinksFromPage(ctx context.Context, url string) ([]string, error) {
@@ -119,7 +124,7 @@ func getLinksFromPage(ctx context.Context, url string) ([]string, error) {
 
 		for {
 			key, val, hasMoreAttr := tokenizer.TagAttr()
-			if len(key) == 4 && key[0] == 'h' && key[1] == 'r' && key[2] == 'e' && key[3] == 'f' {
+			if len(key) == 4 && string(key) == "href" {
 				links = append(links, string(val))
 				break
 			}
