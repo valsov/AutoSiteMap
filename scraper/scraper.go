@@ -17,22 +17,29 @@ type Page struct {
 }
 
 type SiteScraper struct {
-	baseUrl *url.URL
-	db      map[string]*Page
-	mutex   sync.Mutex
-	wg      sync.WaitGroup
+	baseUrl              *url.URL
+	db                   map[string]*Page
+	mutex                sync.Mutex
+	wg                   sync.WaitGroup
+	remainingVisits      int
+	handleVisitsCount    bool
+	includeExternalLinks bool
 }
 
-func NewSiteScraper(domainUrl string) *SiteScraper {
+func NewSiteScraper(domainUrl string, maxVisitsCount int, includeExternalLinks bool) *SiteScraper {
 	parsedUrl, err := url.Parse(domainUrl)
 	if err != nil {
 		panic(err)
 	}
+
 	return &SiteScraper{
-		baseUrl: parsedUrl,
-		db:      map[string]*Page{},
-		mutex:   sync.Mutex{},
-		wg:      sync.WaitGroup{},
+		baseUrl:              parsedUrl,
+		db:                   map[string]*Page{},
+		mutex:                sync.Mutex{},
+		wg:                   sync.WaitGroup{},
+		remainingVisits:      maxVisitsCount,
+		handleVisitsCount:    maxVisitsCount > 0,
+		includeExternalLinks: includeExternalLinks,
 	}
 }
 
@@ -67,6 +74,11 @@ func (s *SiteScraper) visit(ctx context.Context, page *Page) {
 
 	for _, link := range links {
 		link, internal := s.formatInternalUrl(link) // Format link
+		if !internal && !s.includeExternalLinks {
+			// Skip external link
+			continue
+		}
+
 		s.mutex.Lock()
 		if linkedPage, found := s.db[link]; found {
 			page.OutgoingLinks = append(page.OutgoingLinks, linkedPage.Id)
@@ -74,7 +86,8 @@ func (s *SiteScraper) visit(ctx context.Context, page *Page) {
 			linkedPage = &Page{Id: len(s.db) + 1, Url: link, OutgoingLinks: []int{}, IsInternalUrl: internal}
 			page.OutgoingLinks = append(page.OutgoingLinks, linkedPage.Id)
 			s.db[link] = linkedPage // Add to cache
-			if linkedPage.IsInternalUrl {
+			s.remainingVisits--
+			if linkedPage.IsInternalUrl && (!s.handleVisitsCount || s.remainingVisits > 0) {
 				// Only visit internal resources
 				go s.visit(ctx, linkedPage)
 			}
@@ -89,7 +102,10 @@ func (s *SiteScraper) formatInternalUrl(inputUrl string) (string, bool) {
 		return inputUrl, false
 	}
 
-	if parsed.Host == s.baseUrl.Host {
+	if parsed.Host == "" || parsed.Host == s.baseUrl.Host {
+		if parsed.Path == "" {
+			parsed.Path = "/"
+		}
 		return parsed.Path, true // Ommit query string and host
 	}
 	return inputUrl, false

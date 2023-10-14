@@ -1,4 +1,4 @@
-module github.com/valsov/autositemap
+module github.com/valsov/websitemapper
 
 go 1.21.1
 

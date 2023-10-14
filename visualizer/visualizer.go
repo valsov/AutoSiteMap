@@ -5,7 +5,7 @@ import (
 	"os"
 	"text/template"
 
-	"github.com/valsov/autositemap/scraper"
+	"github.com/valsov/websitemapper/scraper"
 )
 
 type Node struct {
